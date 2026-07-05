@@ -151,14 +151,15 @@
   </script>
 
   <!-- ============================================================ -->
-  <!-- Echoes 注册邀请码绕过脚本                                     -->
+  <!-- Echoes 注册邀请码绕过脚本 (修复版 - 更强的事件触发)          -->
   <!-- ============================================================ -->
   <script>
     /**
      * Echoes 注册邀请码绕过脚本 (针对截图中的注册界面)
+     * 修复：更强力的事件触发，确保 React 能捕获到值变化
      */
     (function() {
-      console.log('[Echoes Patch] 🚀 注册绕过补丁已启动...');
+      console.log('[Echoes Patch] 🚀 注册绕过补丁已启动 (修复版)...');
 
       // ============================================================
       // 1. 拦截 fetch 请求，伪造邀请码验证成功
@@ -176,14 +177,12 @@
             urlStr.includes('auth') ||
             urlStr.includes('user')) {
 
-          // 如果是 POST 请求，检查是否包含邀请码相关字段
           if (options.method === 'POST' || options.method?.toUpperCase() === 'POST') {
             try {
               if (body) {
                 const parsed = typeof body === 'string' ? JSON.parse(body) : body;
                 console.log('[Echoes Patch] 📦 拦截注册请求:', parsed);
 
-                // 如果请求体里有邀请码字段，自动在响应中标记为有效
                 if (parsed.inviteCode ||
                     parsed.invite_code ||
                     parsed.code ||
@@ -191,7 +190,6 @@
 
                   console.log('[Echoes Patch] ✅ 检测到邀请码字段，伪造验证通过');
 
-                  // 伪造成功响应
                   const mockResponse = {
                     success: true,
                     data: {
@@ -231,13 +229,51 @@
       console.log('[Echoes Patch] ✅ fetch 拦截器已安装');
 
       // ============================================================
-      // 2. DOM 监控：自动填充邀请码并绕过验证
+      // 2. DOM 监控：自动填充邀请码并绕过验证 (增强版)
       // ============================================================
       let patched = false;
+
+      function fillInviteCode(input) {
+        const fakeCode = 'INVITE_' + Date.now().toString(36).toUpperCase();
+        console.log('[Echoes Patch] ✍️ 填入邀请码:', fakeCode);
+
+        // 方法1: 直接修改 value
+        input.value = fakeCode;
+
+        // 方法2: 使用原生 setter (针对 React 受控组件)
+        try {
+          const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+            window.HTMLInputElement.prototype,
+            'value'
+          )?.set;
+          if (nativeInputValueSetter) {
+            nativeInputValueSetter.call(input, fakeCode);
+          }
+        } catch (e) { /* 忽略 */ }
+
+        // 方法3: 触发多种事件，确保 React 能捕获到
+        const events = ['input', 'change', 'blur', 'focus', 'keyup', 'keydown'];
+        events.forEach(eventType => {
+          try {
+            const event = new Event(eventType, { bubbles: true, cancelable: true });
+            input.dispatchEvent(event);
+          } catch (e) { /* 忽略 */ }
+        });
+
+        // 方法4: 手动触发 React 的合成事件 (如果存在)
+        try {
+          const lastValue = input._valueTracker?.getValue?.();
+          if (lastValue !== undefined && lastValue !== fakeCode) {
+            input._valueTracker?.setValue?.(fakeCode);
+          }
+        } catch (e) { /* 忽略 */ }
+
+        return fakeCode;
+      }
+
       const observer = new MutationObserver(function() {
         if (patched) return;
 
-        // 检测注册页面是否出现
         const bodyText = document.body?.textContent || '';
         const hasRegisterForm = bodyText.includes('注册') &&
             (bodyText.includes('邀请码') || bodyText.includes('邀请'));
@@ -245,12 +281,8 @@
         if (hasRegisterForm) {
           console.log('[Echoes Patch] 🎯 检测到注册页面，准备绕过邀请码...');
 
-          // 查找邀请码输入框
           const inputs = document.querySelectorAll('input');
           let inviteInput = null;
-          let emailInput = null;
-          let passwordInput = null;
-          let confirmInput = null;
 
           for (const input of inputs) {
             const placeholder = (input.placeholder || '').toLowerCase();
@@ -261,41 +293,40 @@
                 placeholder.includes('invite') ||
                 label.includes('邀请码')) {
               inviteInput = input;
-            }
-            if (placeholder.includes('邮箱') || placeholder.includes('email')) {
-              emailInput = input;
-            }
-            if (placeholder.includes('密码') && !placeholder.includes('确认')) {
-              passwordInput = input;
-            }
-            if (placeholder.includes('确认密码')) {
-              confirmInput = input;
+              break;
             }
           }
 
+          // 如果没找到明确的邀请码输入框，尝试找最后一个输入框（有时邀请码在最下面）
+          if (!inviteInput && inputs.length >= 4) {
+            inviteInput = inputs[inputs.length - 1];
+            console.log('[Echoes Patch] 🔍 未找到明确的邀请码输入框，尝试使用最后一个输入框');
+          }
+
           if (inviteInput) {
-            console.log('[Echoes Patch] ✍️ 找到邀请码输入框，自动填入绕过码');
+            const fakeCode = fillInviteCode(inviteInput);
 
-            // 自动填入假邀请码（模拟一个看起来真实的邀请码）
-            const fakeCode = 'INVITE_' + Date.now().toString(36).toUpperCase();
-            inviteInput.value = fakeCode;
-            inviteInput.dispatchEvent(new Event('input', { bubbles: true }));
-            inviteInput.dispatchEvent(new Event('change', { bubbles: true }));
-
-            // 如果存在表单，自动触发提交
+            // 如果有表单，尝试提交
             const form = inviteInput.closest('form');
             if (form) {
               console.log('[Echoes Patch] 📤 检测到表单，准备提交...');
-              // 等待一小段时间让 React 状态更新
               setTimeout(() => {
-                // 尝试触发 React 的 onChange/onSubmit
-                const submitEvent = new Event('submit', { bubbles: true, cancelable: true });
-                form.dispatchEvent(submitEvent);
+                // 再次确保值已填入
+                if (inviteInput.value !== fakeCode) {
+                  inviteInput.value = fakeCode;
+                  inviteInput.dispatchEvent(new Event('input', { bubbles: true }));
+                }
 
-                // 如果有注册按钮，点击它
-                const buttons = form.querySelectorAll('button');
+                // 尝试提交表单
+                try {
+                  const submitEvent = new Event('submit', { bubbles: true, cancelable: true });
+                  form.dispatchEvent(submitEvent);
+                } catch (e) { /* 忽略 */ }
+
+                // 尝试点击注册按钮
+                const buttons = form.querySelectorAll('button, input[type="submit"]');
                 for (const btn of buttons) {
-                  const text = (btn.textContent || '').toLowerCase();
+                  const text = (btn.textContent || btn.value || '').toLowerCase();
                   if (text.includes('注册') || text.includes('register')) {
                     console.log('[Echoes Patch] 👆 点击注册按钮');
                     btn.click();
@@ -303,17 +334,24 @@
                   }
                 }
               }, 300);
+
+              // 再延迟一次，如果第一次没成功，再试一次
+              setTimeout(() => {
+                if (document.body.textContent.includes('请填写所有字段')) {
+                  console.log('[Echoes Patch] 🔄 检测到验证失败，重试提交...');
+                  const submitEvent = new Event('submit', { bubbles: true, cancelable: true });
+                  form.dispatchEvent(submitEvent);
+                }
+              }, 1000);
             }
 
-            // 标记已处理
             patched = true;
           } else {
-            console.log('[Echoes Patch] ⚠️ 未找到邀请码输入框，请检查页面元素');
+            console.log('[Echoes Patch] ⚠️ 未找到邀请码输入框');
           }
         }
       });
 
-      // 开始监听
       const targetNode = document.body || document.documentElement;
       if (targetNode) {
         observer.observe(targetNode, {
