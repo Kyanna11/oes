@@ -151,18 +151,20 @@
   </script>
 
   <!-- ============================================================ -->
-  <!-- Echoes 注册邀请码绕过脚本 (修复版 - 更强的事件触发)          -->
+  <!-- Echoes 注册邀请码绕过脚本 (增强完整版)                       -->
   <!-- ============================================================ -->
   <script>
     /**
-     * Echoes 注册邀请码绕过脚本 (针对截图中的注册界面)
-     * 修复：更强力的事件触发，确保 React 能捕获到值变化
+     * Echoes 注册邀请码绕过脚本 (增强完整版)
+     * 1. 拦截 fetch 请求
+     * 2. 拦截 Supabase SDK 的 signUp 方法
+     * 3. 自动填充邀请码输入框
      */
     (function() {
-      console.log('[Echoes Patch] 🚀 注册绕过补丁已启动 (修复版)...');
+      console.log('[Echoes Patch] 🚀 注册绕过补丁已启动 (增强完整版)...');
 
       // ============================================================
-      // 1. 拦截 fetch 请求，伪造邀请码验证成功
+      // 1. 拦截 fetch 请求
       // ============================================================
       const originalFetch = window.fetch;
       window.fetch = function(...args) {
@@ -171,7 +173,7 @@
         const options = args[1] || {};
         const body = options.body;
 
-        // 检测注册请求
+        // 拦截注册请求
         if (urlStr.includes('signup') ||
             urlStr.includes('register') ||
             urlStr.includes('auth') ||
@@ -183,45 +185,22 @@
                 const parsed = typeof body === 'string' ? JSON.parse(body) : body;
                 console.log('[Echoes Patch] 📦 拦截注册请求:', parsed);
 
-                if (parsed.inviteCode ||
-                    parsed.invite_code ||
-                    parsed.code ||
-                    parsed.invitationCode) {
-
-                  console.log('[Echoes Patch] ✅ 检测到邀请码字段，伪造验证通过');
-
-                  const mockResponse = {
-                    success: true,
-                    data: {
-                      user: { id: 'bypass_' + Date.now() },
-                      session: { access_token: 'bypass_token_' + Date.now() }
-                    },
-                    error: null
-                  };
-                  return Promise.resolve(new Response(JSON.stringify(mockResponse), {
-                    status: 200,
-                    headers: { 'Content-Type': 'application/json' }
-                  }));
-                }
+                // 伪造成功响应
+                const mockResponse = {
+                  success: true,
+                  data: {
+                    user: { id: 'bypass_' + Date.now() },
+                    session: { access_token: 'bypass_token_' + Date.now() }
+                  },
+                  error: null
+                };
+                return Promise.resolve(new Response(JSON.stringify(mockResponse), {
+                  status: 200,
+                  headers: { 'Content-Type': 'application/json' }
+                }));
               }
-            } catch (e) { /* 忽略解析错误 */ }
+            } catch (e) { /* 忽略 */ }
           }
-        }
-
-        // 检测单独的邀请码验证请求
-        if (urlStr.includes('verify') ||
-            urlStr.includes('validate') ||
-            urlStr.includes('check') ||
-            urlStr.includes('redeem')) {
-          console.log('[Echoes Patch] 🛑 拦截邀请码验证请求:', urlStr);
-          return Promise.resolve(new Response(JSON.stringify({
-            success: true,
-            valid: true,
-            data: { message: 'Invite code valid (bypassed)' }
-          }), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' }
-          }));
         }
 
         return originalFetch.apply(this, args);
@@ -229,13 +208,51 @@
       console.log('[Echoes Patch] ✅ fetch 拦截器已安装');
 
       // ============================================================
-      // 2. DOM 监控：自动填充邀请码并绕过验证 (增强版)
+      // 2. 拦截 Supabase SDK 的 signUp 方法
+      // ============================================================
+      function interceptSupabase() {
+        if (window.supabase && window.supabase.auth) {
+          const originalSignUp = window.supabase.auth.signUp;
+          if (originalSignUp && !window.supabase.auth._patched) {
+            window.supabase.auth.signUp = function(...args) {
+              console.log('[Echoes Patch] 🛑 拦截 supabase.auth.signUp:', args);
+              try {
+                const params = args[0] || {};
+                if (!params.options) params.options = {};
+                // 伪造邀请码
+                params.options.inviteCode = 'BYPASS_' + Date.now().toString(36).toUpperCase();
+                console.log('[Echoes Patch] ✅ 已注入假邀请码:', params.options.inviteCode);
+                args[0] = params;
+              } catch (e) { /* 忽略 */ }
+              return originalSignUp.apply(this, args);
+            };
+            window.supabase.auth._patched = true;
+            console.log('[Echoes Patch] ✅ supabase.auth.signUp 已拦截');
+            return true;
+          }
+        }
+        return false;
+      }
+
+      // 立即尝试拦截
+      if (!interceptSupabase()) {
+        // 如果 supabase 还没加载，等待它加载
+        const observer = new MutationObserver(function() {
+          if (interceptSupabase()) {
+            observer.disconnect();
+          }
+        });
+        observer.observe(document.documentElement, { childList: true, subtree: true });
+        console.log('[Echoes Patch] ⏳ 等待 Supabase 加载...');
+      }
+
+      // ============================================================
+      // 3. 自动填充邀请码输入框 (增强版)
       // ============================================================
       let patched = false;
 
       function fillInviteCode(input) {
-        const fakeCode = 'INVITE_' + Date.now().toString(36).toUpperCase();
-        console.log('[Echoes Patch] ✍️ 填入邀请码:', fakeCode);
+        const fakeCode = 'BYPASS_' + Date.now().toString(36).toUpperCase();
 
         // 方法1: 直接修改 value
         input.value = fakeCode;
@@ -251,7 +268,7 @@
           }
         } catch (e) { /* 忽略 */ }
 
-        // 方法3: 触发多种事件，确保 React 能捕获到
+        // 方法3: 触发多种事件
         const events = ['input', 'change', 'blur', 'focus', 'keyup', 'keydown'];
         events.forEach(eventType => {
           try {
@@ -260,18 +277,11 @@
           } catch (e) { /* 忽略 */ }
         });
 
-        // 方法4: 手动触发 React 的合成事件 (如果存在)
-        try {
-          const lastValue = input._valueTracker?.getValue?.();
-          if (lastValue !== undefined && lastValue !== fakeCode) {
-            input._valueTracker?.setValue?.(fakeCode);
-          }
-        } catch (e) { /* 忽略 */ }
-
+        console.log('[Echoes Patch] ✍️ 已填入邀请码:', fakeCode);
         return fakeCode;
       }
 
-      const observer = new MutationObserver(function() {
+      const domObserver = new MutationObserver(function() {
         if (patched) return;
 
         const bodyText = document.body?.textContent || '';
@@ -297,24 +307,23 @@
             }
           }
 
-          // 如果没找到明确的邀请码输入框，尝试找最后一个输入框（有时邀请码在最下面）
+          // 如果没找到明确的邀请码输入框，尝试找最后一个输入框
           if (!inviteInput && inputs.length >= 4) {
             inviteInput = inputs[inputs.length - 1];
-            console.log('[Echoes Patch] 🔍 未找到明确的邀请码输入框，尝试使用最后一个输入框');
+            console.log('[Echoes Patch] 🔍 使用最后一个输入框作为邀请码输入框');
           }
 
           if (inviteInput) {
-            const fakeCode = fillInviteCode(inviteInput);
+            fillInviteCode(inviteInput);
 
-            // 如果有表单，尝试提交
+            // 如果有表单，尝试自动提交
             const form = inviteInput.closest('form');
             if (form) {
-              console.log('[Echoes Patch] 📤 检测到表单，准备提交...');
+              console.log('[Echoes Patch] 📤 检测到表单，准备自动提交...');
               setTimeout(() => {
                 // 再次确保值已填入
-                if (inviteInput.value !== fakeCode) {
-                  inviteInput.value = fakeCode;
-                  inviteInput.dispatchEvent(new Event('input', { bubbles: true }));
+                if (!inviteInput.value || inviteInput.value === '') {
+                  fillInviteCode(inviteInput);
                 }
 
                 // 尝试提交表单
@@ -333,16 +342,7 @@
                     break;
                   }
                 }
-              }, 300);
-
-              // 再延迟一次，如果第一次没成功，再试一次
-              setTimeout(() => {
-                if (document.body.textContent.includes('请填写所有字段')) {
-                  console.log('[Echoes Patch] 🔄 检测到验证失败，重试提交...');
-                  const submitEvent = new Event('submit', { bubbles: true, cancelable: true });
-                  form.dispatchEvent(submitEvent);
-                }
-              }, 1000);
+              }, 500);
             }
 
             patched = true;
@@ -352,24 +352,11 @@
         }
       });
 
-      const targetNode = document.body || document.documentElement;
-      if (targetNode) {
-        observer.observe(targetNode, {
-          childList: true,
-          subtree: true,
-          characterData: true
-        });
-        console.log('[Echoes Patch] ✅ DOM 监控已启动');
-      } else {
-        document.addEventListener('DOMContentLoaded', function() {
-          observer.observe(document.body, {
-            childList: true,
-            subtree: true,
-            characterData: true
-          });
-          console.log('[Echoes Patch] ✅ DOM 监控已启动 (延迟)');
-        });
-      }
+      domObserver.observe(document.body || document.documentElement, {
+        childList: true,
+        subtree: true,
+        characterData: true
+      });
 
       console.log('[Echoes Patch] ✅ 所有补丁已安装完成，等待注册页面加载...');
     })();
