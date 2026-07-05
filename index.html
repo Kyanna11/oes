@@ -151,21 +151,13 @@
   </script>
 
   <!-- ============================================================ -->
-  <!-- Echoes 注册邀请码绕过脚本 (增强完整版)                       -->
+  <!-- Echoes 注册邀请码绕过脚本 (最终版：直接禁用验证)             -->
   <!-- ============================================================ -->
   <script>
-    /**
-     * Echoes 注册邀请码绕过脚本 (增强完整版)
-     * 1. 拦截 fetch 请求
-     * 2. 拦截 Supabase SDK 的 signUp 方法
-     * 3. 自动填充邀请码输入框
-     */
     (function() {
-      console.log('[Echoes Patch] 🚀 注册绕过补丁已启动 (增强完整版)...');
+      console.log('[Echoes Patch] 🚀 注册绕过补丁已启动 (最终版)...');
 
-      // ============================================================
-      // 1. 拦截 fetch 请求
-      // ============================================================
+      // 拦截 fetch 请求
       const originalFetch = window.fetch;
       window.fetch = function(...args) {
         const url = args[0];
@@ -173,18 +165,13 @@
         const options = args[1] || {};
         const body = options.body;
 
-        // 拦截注册请求
-        if (urlStr.includes('signup') ||
-            urlStr.includes('register') ||
-            urlStr.includes('auth') ||
-            urlStr.includes('user')) {
-
+        // 检测注册请求
+        if (urlStr.includes('signup') || urlStr.includes('register') || urlStr.includes('auth')) {
           if (options.method === 'POST' || options.method?.toUpperCase() === 'POST') {
             try {
               if (body) {
                 const parsed = typeof body === 'string' ? JSON.parse(body) : body;
                 console.log('[Echoes Patch] 📦 拦截注册请求:', parsed);
-
                 // 伪造成功响应
                 const mockResponse = {
                   success: true,
@@ -203,13 +190,20 @@
           }
         }
 
+        // 拦截邀请码验证请求
+        if (urlStr.includes('verify') || urlStr.includes('validate') || urlStr.includes('check') || urlStr.includes('redeem')) {
+          console.log('[Echoes Patch] 🛑 拦截邀请码验证请求:', urlStr);
+          return Promise.resolve(new Response(JSON.stringify({ success: true, valid: true }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' }
+          }));
+        }
+
         return originalFetch.apply(this, args);
       };
       console.log('[Echoes Patch] ✅ fetch 拦截器已安装');
 
-      // ============================================================
-      // 2. 拦截 Supabase SDK 的 signUp 方法
-      // ============================================================
+      // 拦截 Supabase SDK
       function interceptSupabase() {
         if (window.supabase && window.supabase.auth) {
           const originalSignUp = window.supabase.auth.signUp;
@@ -219,9 +213,7 @@
               try {
                 const params = args[0] || {};
                 if (!params.options) params.options = {};
-                // 伪造邀请码
                 params.options.inviteCode = 'BYPASS_' + Date.now().toString(36).toUpperCase();
-                console.log('[Echoes Patch] ✅ 已注入假邀请码:', params.options.inviteCode);
                 args[0] = params;
               } catch (e) { /* 忽略 */ }
               return originalSignUp.apply(this, args);
@@ -234,120 +226,47 @@
         return false;
       }
 
-      // 立即尝试拦截
       if (!interceptSupabase()) {
-        // 如果 supabase 还没加载，等待它加载
         const observer = new MutationObserver(function() {
-          if (interceptSupabase()) {
-            observer.disconnect();
-          }
+          if (interceptSupabase()) observer.disconnect();
         });
         observer.observe(document.documentElement, { childList: true, subtree: true });
         console.log('[Echoes Patch] ⏳ 等待 Supabase 加载...');
       }
 
-      // ============================================================
-      // 3. 自动填充邀请码输入框 (增强版)
-      // ============================================================
+      // DOM 操作：自动填充邀请码 + 强制移除表单验证
       let patched = false;
-
-      function fillInviteCode(input) {
-        const fakeCode = 'BYPASS_' + Date.now().toString(36).toUpperCase();
-
-        // 方法1: 直接修改 value
-        input.value = fakeCode;
-
-        // 方法2: 使用原生 setter (针对 React 受控组件)
-        try {
-          const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
-            window.HTMLInputElement.prototype,
-            'value'
-          )?.set;
-          if (nativeInputValueSetter) {
-            nativeInputValueSetter.call(input, fakeCode);
-          }
-        } catch (e) { /* 忽略 */ }
-
-        // 方法3: 触发多种事件
-        const events = ['input', 'change', 'blur', 'focus', 'keyup', 'keydown'];
-        events.forEach(eventType => {
-          try {
-            const event = new Event(eventType, { bubbles: true, cancelable: true });
-            input.dispatchEvent(event);
-          } catch (e) { /* 忽略 */ }
-        });
-
-        console.log('[Echoes Patch] ✍️ 已填入邀请码:', fakeCode);
-        return fakeCode;
-      }
-
       const domObserver = new MutationObserver(function() {
         if (patched) return;
 
         const bodyText = document.body?.textContent || '';
-        const hasRegisterForm = bodyText.includes('注册') &&
-            (bodyText.includes('邀请码') || bodyText.includes('邀请'));
-
-        if (hasRegisterForm) {
-          console.log('[Echoes Patch] 🎯 检测到注册页面，准备绕过邀请码...');
+        if (bodyText.includes('注册') && (bodyText.includes('邀请码') || bodyText.includes('邀请'))) {
+          console.log('[Echoes Patch] 🎯 检测到注册页面');
 
           const inputs = document.querySelectorAll('input');
           let inviteInput = null;
-
           for (const input of inputs) {
             const placeholder = (input.placeholder || '').toLowerCase();
-            const label = (input.getAttribute('aria-label') || '').toLowerCase();
-
-            if (placeholder.includes('邀请码') ||
-                placeholder.includes('邀请') ||
-                placeholder.includes('invite') ||
-                label.includes('邀请码')) {
+            if (placeholder.includes('邀请码') || placeholder.includes('邀请') || placeholder.includes('invite')) {
               inviteInput = input;
               break;
             }
           }
 
-          // 如果没找到明确的邀请码输入框，尝试找最后一个输入框
-          if (!inviteInput && inputs.length >= 4) {
-            inviteInput = inputs[inputs.length - 1];
-            console.log('[Echoes Patch] 🔍 使用最后一个输入框作为邀请码输入框');
-          }
-
           if (inviteInput) {
-            fillInviteCode(inviteInput);
+            const fakeCode = 'BYPASS_' + Date.now().toString(36).toUpperCase();
+            inviteInput.value = fakeCode;
+            inviteInput.dispatchEvent(new Event('input', { bubbles: true }));
+            inviteInput.dispatchEvent(new Event('change', { bubbles: true }));
+            console.log('[Echoes Patch] ✍️ 已填入邀请码:', fakeCode);
 
-            // 如果有表单，尝试自动提交
-            const form = inviteInput.closest('form');
-            if (form) {
-              console.log('[Echoes Patch] 📤 检测到表单，准备自动提交...');
-              setTimeout(() => {
-                // 再次确保值已填入
-                if (!inviteInput.value || inviteInput.value === '') {
-                  fillInviteCode(inviteInput);
-                }
-
-                // 尝试提交表单
-                try {
-                  const submitEvent = new Event('submit', { bubbles: true, cancelable: true });
-                  form.dispatchEvent(submitEvent);
-                } catch (e) { /* 忽略 */ }
-
-                // 尝试点击注册按钮
-                const buttons = form.querySelectorAll('button, input[type="submit"]');
-                for (const btn of buttons) {
-                  const text = (btn.textContent || btn.value || '').toLowerCase();
-                  if (text.includes('注册') || text.includes('register')) {
-                    console.log('[Echoes Patch] 👆 点击注册按钮');
-                    btn.click();
-                    break;
-                  }
-                }
-              }, 500);
+            // 移除输入框的 required 属性（禁用必填验证）
+            if (inviteInput.hasAttribute('required')) {
+              inviteInput.removeAttribute('required');
+              console.log('[Echoes Patch] ✅ 已移除邀请码的 required 属性');
             }
 
             patched = true;
-          } else {
-            console.log('[Echoes Patch] ⚠️ 未找到邀请码输入框');
           }
         }
       });
@@ -358,7 +277,7 @@
         characterData: true
       });
 
-      console.log('[Echoes Patch] ✅ 所有补丁已安装完成，等待注册页面加载...');
+      console.log('[Echoes Patch] ✅ 所有补丁已安装完成');
     })();
   </script>
 
