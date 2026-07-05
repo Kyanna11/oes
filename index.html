@@ -18,6 +18,8 @@
 
 <body class="notranslate">
   <div id="root" class="notranslate"></div>
+
+  <!-- 原有的 DOM 修复脚本 -->
   <script>
     (function() {
       var warnedMethods = {};
@@ -84,12 +86,11 @@
       };
     })();
   </script>
+
+  <!-- bfcache 恢复脚本 -->
   <script>
-    // Android Chrome bfcache recovery: when the page is restored from bfcache
-    // after being killed, force a full reload to avoid stale JS context.
     window.addEventListener('pageshow', function(e) {
       if (e.persisted) {
-        // In PWA, must clear SW caches first or reload just serves stale content
         Promise.resolve()
           .then(function() {
             return 'caches' in window ? caches.keys().then(function(ks) { return Promise.all(ks.map(function(k) { return caches.delete(k); })); }) : 0;
@@ -99,8 +100,6 @@
       }
     });
 
-    // Last-resort recovery: if a chunk fails to load or any fatal error occurs,
-    // show a reload prompt instead of a white screen.
     window.addEventListener('error', function(e) {
       if (e.message && (e.message.indexOf('Loading chunk') !== -1
         || e.message.indexOf('dynamically imported module') !== -1
@@ -119,6 +118,7 @@
         showRecovery();
       }
     });
+
     function showRecovery() {
       if (document.getElementById('_recovery')) return;
       var d = document.createElement('div');
@@ -130,11 +130,11 @@
         + '<button id="_recoveryBtn" onclick="hardReload()" style="padding:0.5rem 1.5rem;border-radius:0.75rem;border:none;background:#64748b;color:#fff;font-size:0.875rem;cursor:pointer">\u5237\u65B0\u9875\u9762</button>';
       document.body.appendChild(d);
     }
+
     function hardReload() {
       var btn = document.getElementById('_recoveryBtn');
       if (btn) { btn.textContent = '\u6B63\u5728\u5237\u65B0\u2026'; btn.disabled = true; btn.style.background = '#94a3b8'; btn.style.cursor = 'not-allowed'; }
       function bustReload() {
-        // 带时间戳绕过浏览器 HTTP 缓存（特别是 iOS PWA）
         var url = location.pathname + '?_t=' + Date.now() + location.hash;
         location.replace(url);
       }
@@ -151,133 +151,105 @@
   </script>
 
   <!-- ============================================================ -->
-  <!-- Echoes 注册邀请码绕过脚本 (最终版：直接禁用验证)             -->
+  <!-- 核心：强制跳过登录/注册，直接进入主页                       -->
   <!-- ============================================================ -->
   <script>
     (function() {
-      console.log('[Echoes Patch] 🚀 注册绕过补丁已启动 (最终版)...');
+      console.log('[Echoes Skip] 🚀 强制跳过登录/注册...');
 
-      // 拦截 fetch 请求
-      const originalFetch = window.fetch;
-      window.fetch = function(...args) {
-        const url = args[0];
-        const urlStr = typeof url === 'string' ? url : (url?.url || '');
-        const options = args[1] || {};
-        const body = options.body;
+      // ============================================================
+      // 1. 监听 React 路由变化，强制跳转到主页
+      // ============================================================
+      let isSkipped = false;
 
-        // 检测注册请求
-        if (urlStr.includes('signup') || urlStr.includes('register') || urlStr.includes('auth')) {
-          if (options.method === 'POST' || options.method?.toUpperCase() === 'POST') {
-            try {
-              if (body) {
-                const parsed = typeof body === 'string' ? JSON.parse(body) : body;
-                console.log('[Echoes Patch] 📦 拦截注册请求:', parsed);
-                // 伪造成功响应
-                const mockResponse = {
-                  success: true,
-                  data: {
-                    user: { id: 'bypass_' + Date.now() },
-                    session: { access_token: 'bypass_token_' + Date.now() }
-                  },
-                  error: null
-                };
-                return Promise.resolve(new Response(JSON.stringify(mockResponse), {
-                  status: 200,
-                  headers: { 'Content-Type': 'application/json' }
-                }));
+      function forceHome() {
+        if (isSkipped) return;
+        isSkipped = true;
+
+        console.log('[Echoes Skip] 🎯 检测到登录/注册页面，强制跳转...');
+
+        // 方法1: 修改 URL 为根路径（触发 React Router 导航）
+        if (window.location.pathname !== '/' && window.location.pathname !== '/home') {
+          window.history.pushState({}, '', '/');
+          window.dispatchEvent(new PopStateEvent('popstate'));
+        }
+
+        // 方法2: 尝试找到 React Router 实例并手动导航
+        setTimeout(function() {
+          // 尝试触发 React 内部的导航
+          try {
+            // 模拟点击导航链接
+            const links = document.querySelectorAll('a[href="/"], a[href="/home"]');
+            for (const link of links) {
+              if (link.textContent.includes('主页') || link.textContent.includes('首页') || link.textContent.includes('Home')) {
+                console.log('[Echoes Skip] 👆 点击导航链接');
+                link.click();
+                break;
               }
-            } catch (e) { /* 忽略 */ }
+            }
+          } catch (e) { /* 忽略 */ }
+
+          // 方法3: 直接修改根节点的内容（极端情况）
+          if (document.body.textContent.includes('登录') || document.body.textContent.includes('注册')) {
+            console.log('[Echoes Skip] 🔄 登录页仍然存在，尝试强制刷新...');
+            // 如果还是登录页，说明 React 还没加载完，延迟重试
+            setTimeout(function() {
+              if (document.body.textContent.includes('登录')) {
+                window.location.reload();
+              }
+            }, 2000);
           }
-        }
-
-        // 拦截邀请码验证请求
-        if (urlStr.includes('verify') || urlStr.includes('validate') || urlStr.includes('check') || urlStr.includes('redeem')) {
-          console.log('[Echoes Patch] 🛑 拦截邀请码验证请求:', urlStr);
-          return Promise.resolve(new Response(JSON.stringify({ success: true, valid: true }), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' }
-          }));
-        }
-
-        return originalFetch.apply(this, args);
-      };
-      console.log('[Echoes Patch] ✅ fetch 拦截器已安装');
-
-      // 拦截 Supabase SDK
-      function interceptSupabase() {
-        if (window.supabase && window.supabase.auth) {
-          const originalSignUp = window.supabase.auth.signUp;
-          if (originalSignUp && !window.supabase.auth._patched) {
-            window.supabase.auth.signUp = function(...args) {
-              console.log('[Echoes Patch] 🛑 拦截 supabase.auth.signUp:', args);
-              try {
-                const params = args[0] || {};
-                if (!params.options) params.options = {};
-                params.options.inviteCode = 'BYPASS_' + Date.now().toString(36).toUpperCase();
-                args[0] = params;
-              } catch (e) { /* 忽略 */ }
-              return originalSignUp.apply(this, args);
-            };
-            window.supabase.auth._patched = true;
-            console.log('[Echoes Patch] ✅ supabase.auth.signUp 已拦截');
-            return true;
-          }
-        }
-        return false;
+        }, 500);
       }
 
-      if (!interceptSupabase()) {
-        const observer = new MutationObserver(function() {
-          if (interceptSupabase()) observer.disconnect();
-        });
-        observer.observe(document.documentElement, { childList: true, subtree: true });
-        console.log('[Echoes Patch] ⏳ 等待 Supabase 加载...');
-      }
-
-      // DOM 操作：自动填充邀请码 + 强制移除表单验证
-      let patched = false;
-      const domObserver = new MutationObserver(function() {
-        if (patched) return;
-
+      // 监控 DOM 变化，检测登录/注册页面
+      const observer = new MutationObserver(function() {
         const bodyText = document.body?.textContent || '';
-        if (bodyText.includes('注册') && (bodyText.includes('邀请码') || bodyText.includes('邀请'))) {
-          console.log('[Echoes Patch] 🎯 检测到注册页面');
-
-          const inputs = document.querySelectorAll('input');
-          let inviteInput = null;
-          for (const input of inputs) {
-            const placeholder = (input.placeholder || '').toLowerCase();
-            if (placeholder.includes('邀请码') || placeholder.includes('邀请') || placeholder.includes('invite')) {
-              inviteInput = input;
-              break;
-            }
-          }
-
-          if (inviteInput) {
-            const fakeCode = 'BYPASS_' + Date.now().toString(36).toUpperCase();
-            inviteInput.value = fakeCode;
-            inviteInput.dispatchEvent(new Event('input', { bubbles: true }));
-            inviteInput.dispatchEvent(new Event('change', { bubbles: true }));
-            console.log('[Echoes Patch] ✍️ 已填入邀请码:', fakeCode);
-
-            // 移除输入框的 required 属性（禁用必填验证）
-            if (inviteInput.hasAttribute('required')) {
-              inviteInput.removeAttribute('required');
-              console.log('[Echoes Patch] ✅ 已移除邀请码的 required 属性');
-            }
-
-            patched = true;
-          }
+        if (bodyText.includes('登录') && (bodyText.includes('注册') || bodyText.includes('邮箱'))) {
+          forceHome();
         }
       });
 
-      domObserver.observe(document.body || document.documentElement, {
-        childList: true,
-        subtree: true,
-        characterData: true
-      });
+      // 开始监控
+      if (document.body) {
+        observer.observe(document.body, {
+          childList: true,
+          subtree: true,
+          characterData: true
+        });
+      } else {
+        document.addEventListener('DOMContentLoaded', function() {
+          observer.observe(document.body, {
+            childList: true,
+            subtree: true,
+            characterData: true
+          });
+        });
+      }
 
-      console.log('[Echoes Patch] ✅ 所有补丁已安装完成');
+      // 首次加载时立即检查
+      setTimeout(function() {
+        const bodyText = document.body?.textContent || '';
+        if (bodyText.includes('登录') && (bodyText.includes('注册') || bodyText.includes('邮箱'))) {
+          forceHome();
+        }
+      }, 100);
+
+      // 持续轮询检查（因为 React 可能异步渲染）
+      let checkCount = 0;
+      const intervalId = setInterval(function() {
+        checkCount++;
+        if (checkCount > 30) { // 约30秒后停止
+          clearInterval(intervalId);
+          return;
+        }
+        const bodyText = document.body?.textContent || '';
+        if (bodyText.includes('登录') && (bodyText.includes('注册') || bodyText.includes('邮箱'))) {
+          forceHome();
+        }
+      }, 1000);
+
+      console.log('[Echoes Skip] ✅ 跳过补丁已安装，等待页面加载...');
     })();
   </script>
 
